@@ -115,12 +115,29 @@ line per step — handy when you cannot reach the deployment from your own netwo
 
 ## Known limits
 
-- **MP4 export depends on the source, not the host.** ffmpeg ships with the app, but YouTube
-  sometimes asks datacenter IPs to prove they are not a bot. When that happens `/render` returns a
-  clear message and suggests `YOUTUBE_COOKIE`; every other export keeps working, and preview still
-  plays the real range in the browser. Twitch and direct video URLs render without a cookie.
-- **Caption quality depends on the source.** With YouTube captions reachable the transcript is real
+- **What works from a datacenter IP, measured on the live deployment.**
+
+  | Source | Metadata | Transcript | MP4 export |
+  | --- | --- | --- | --- |
+  | Twitch clip link | ✅ live GraphQL | — (clip audio, no caption track) | ✅ real file |
+  | Direct `mp4` / `webm` link | ✅ | — | ✅ real file |
+  | YouTube | ✅ oEmbed + watch page | ✅ with `YOUTUBE_COOKIE`, otherwise estimated | ✅ with `YOUTUBE_COOKIE` |
+
+  YouTube answers server IPs with `LOGIN_REQUIRED` / "Sign in to confirm you're not
+  a bot": the watch page loads but ships zero caption tracks, `timedtext` returns an
+  empty body, and the alternate player clients (ANDROID, ANDROID_VR, IOS, TVHTML5,
+  WEB_EMBEDDED, MWEB) all refuse. Public Piped/Invidious instances are mostly shut
+  down or block datacenter traffic, and the free transcript services now require
+  their own auth tokens. `/api/diag` reports all of this live.
+
+  The fix is a credential, not code: set `YOUTUBE_COOKIE` to the `Cookie:` header of
+  a signed-in YouTube session and the same server resolves captions and streams.
+  Today we could not obtain one, so the deployed app is honest about it: the studio
+  shows a banner when a video has no reachable captions, and the export panel
+  explains what to do instead of failing silently.
+
+- **Caption quality depends on the source.** With captions reachable the transcript is real
   speech; otherwise a deterministic per-video transcript model is used and the project is marked
-  `engine: heuristic` so titles and scores are representative rather than literal."
+  `engine: generated`, so scores and cut points are representative rather than literal.
 - **Storage is per-deployment.** File store writes go to `.data/` (ephemeral on serverless) — set
   the Supabase variables for durable records.

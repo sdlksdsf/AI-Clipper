@@ -255,6 +255,36 @@ interface Candidate {
 const average = (values: number[]) =>
   values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0;
 
+const LEAD_FILLER = /^(so|and|but|like|well|okay|um|uh|yeah|right|y'?know|you know|i mean|anyway)[,\s]+/i;
+const HOOK_PATTERNS = [
+  /\?/,
+  /^\s*(how|why|what|when|where|the reason|nobody|everyone|most people|here'?s)/i,
+  /\d/,
+  /\b(never|always|secret|mistake|truth|wrong|actually|nobody|everyone|worst|best|first time)\b/i,
+];
+
+/**
+ * Real captions carry the boundaries that make a clip feel intentional. Auto
+ * captions often ship without punctuation, so a pause counts as a boundary too.
+ */
+function sentenceStart(segments: TranscriptSegment[], index: number): boolean {
+  if (index === 0) return true;
+  const text = segments[index].text.trim();
+  const previous = segments[index - 1];
+  const gap = segments[index].start - previous.end;
+  const previousClosed = /[.!?]["')\]]?$/.test(previous.text.trim());
+  const capitalStart = /^["'(\[]?[A-Z]/.test(text);
+  return gap > 0.55 || (previousClosed && gap > 0.15) || (capitalStart && gap > 0.3);
+}
+
+function sentenceEnd(segments: TranscriptSegment[], index: number): boolean {
+  const text = segments[index].text.trim();
+  if (/[.!?]["')\]]?$/.test(text)) return true;
+  const next = segments[index + 1];
+  if (!next) return true;
+  return next.start - segments[index].end > 0.55;
+}
+
 function scoreWindow(
   segments: TranscriptSegment[],
   features: Features[],
@@ -267,8 +297,18 @@ function scoreWindow(
   const duration = slice[slice.length - 1].end - slice[0].start;
 
   const hookFeatures = windowFeatures.slice(0, Math.min(2, windowFeatures.length));
-  const hook = average(
-    hookFeatures.map((f) => 0.4 * f.energy + 0.28 * f.curiosity + 0.18 * f.emotion + 0.14 * f.quote),
+  const hookText = slice
+    .slice(0, 2)
+    .map((segment) => segment.text)
+    .join(" ");
+  const hookLanguage = HOOK_PATTERNS.filter((pattern) => pattern.test(hookText)).length / HOOK_PATTERNS.length;
+  const fillerPenalty = LEAD_FILLER.test(hookText) ? 0.12 : 0;
+  const hook = clamp(
+    average(hookFeatures.map((f) => 0.4 * f.energy + 0.28 * f.curiosity + 0.18 * f.emotion + 0.14 * f.quote)) +
+      0.14 * hookLanguage -
+      fillerPenalty,
+    0,
+    1,
   );
 
   const body = average(windowFeatures.map((f) => f.raw));
@@ -341,6 +381,7 @@ function sentenceCase(text: string) {
 
 export function makeTitle(text: string, max = 64): string {
   let cleaned = stripFillers(text)
+    .replace(LEAD_FILLER, "")
     .replace(
       /^(the (?:crazy|weird|funny|honest|scary|wild|cool) part is|here'?s the thing|that'?s the (?:thing|part|problem)|the truth is|the reason is|the problem is)[,:]\s*/i,
       "",
@@ -367,7 +408,10 @@ export function makeTitle(text: string, max = 64): string {
     }
   }
 
-  cleaned = cleaned.replace(/\s+(and|but|because|that|so|which|when)$/i, "").replace(/[,;:]+$/g, "").trim();
+  cleaned = cleaned
+    .replace(/\s+(and|but|because|that|so|which|when|the|a|an|to|of|with|for|i|you|we|they|it|is|was)$/i, "")
+    .replace(/[,;:]+$/g, "")
+    .trim();
 
   if (cleaned.length <= max) return sentenceCase(cleaned);
 
@@ -529,18 +573,42 @@ export function analyzeTranscript(input: AnalyzeInput): AnalyzeOutput {
   const minLen = settings.targetLength === 0 ? 20 : Math.max(6, target * 0.8);
   const maxLen = Math.min(60, settings.targetLength === 0 ? 45 : target * 1.15);
 
+  const starts = segments.map((_, index) => sentenceStart(segments, index));
+  const ends = segments.map((_, index) => sentenceEnd(segments, index));
+
   const candidates: Candidate[] = [];
   for (let i = 0; i < segments.length; i++) {
+    // Never open a clip mid-sentence when a clean break exists nearby.
+    if (!starts[i]) continue;
     let best: Candidate | null = null;
     for (let j = i; j < segments.length; j++) {
       const duration = segments[j].end - segments[i].start;
       if (duration > maxLen) break;
       if (duration >= minLen) {
         const candidate = scoreWindow(segments, features, i, j, target);
+        // A clip that stops between two thoughts feels cut; a clean stop doesn't.
+        if (!ends[j]) candidate.score -= 0.035;
         if (!best || candidate.score > best.score) best = candidate;
       }
     }
     if (best) candidates.push(best);
+  }
+
+  // Fall back to every window when the transcript has no usable breaks at all.
+  if (candidates.length < Math.max(3, settings.clipCount)) {
+    candidates.length = 0;
+    for (let i = 0; i < segments.length; i++) {
+      let best: Candidate | null = null;
+      for (let j = i; j < segments.length; j++) {
+        const duration = segments[j].end - segments[i].start;
+        if (duration > maxLen) break;
+        if (duration >= minLen) {
+          const candidate = scoreWindow(segments, features, i, j, target);
+          if (!best || candidate.score > best.score) best = candidate;
+        }
+      }
+      if (best) candidates.push(best);
+    }
   }
 
   candidates.sort((a, b) => b.score - a.score);
@@ -642,8 +710,8 @@ export function analyzeTranscript(input: AnalyzeInput): AnalyzeOutput {
       description,
       hashtags,
       titleIdeas,
-      startSec: Number(Math.max(0, candidate.start - 0.2).toFixed(2)),
-      endSec: Number(Math.min(segments[segments.length - 1].end, candidate.end + 0.25).toFixed(2)),
+      startSec: Number(Math.max(0, candidate.start - 0.18).toFixed(2)),
+      endSec: Number(Math.min(segments[segments.length - 1].end, candidate.end + 0.3).toFixed(2)),
       durationSec: Number(candidate.duration.toFixed(2)),
       scores,
       keywords,

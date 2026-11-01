@@ -33,3 +33,9 @@ create index if not exists cf_projects_user_idx on public.cf_projects (user_id, 
 alter table public.cf_users enable row level security;
 alter table public.cf_sessions enable row level security;
 alter table public.cf_projects enable row level security;
+
+-- Public bucket for rendered MP4s. Filenames are clip ids, so links are
+-- unguessable; uploads go through the service-role key only.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('clipforge-renders', 'clipforge-renders', true, 104857600, array['video/mp4'])
+on conflict (id) do update set public = true;

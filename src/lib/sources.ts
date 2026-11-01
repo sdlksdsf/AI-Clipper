@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import type { Platform, SourceInfo } from "@/lib/types";
+import { fetchYoutubeMeta } from "@/lib/analysis/youtube";
 import { createRng } from "@/lib/utils";
 
 export interface ParsedSource {
@@ -252,6 +253,16 @@ export async function resolveSource(raw: string): Promise<SourceInfo | null> {
       base.author = String(oembed.author_name ?? base.author);
       base.thumbnail = String(oembed.thumbnail_url ?? base.thumbnail);
     }
+  }
+
+  // Real metadata beats any estimate: a wrong duration makes the whole analysis
+  // window wrong, which is the difference between an accurate clip and a guess.
+  if (parsed.platform === "youtube" && parsed.videoId) {
+    const meta = await fetchYoutubeMeta(parsed.videoId).catch(() => null);
+    if (meta?.title) base.title = meta.title;
+    if (meta?.author) base.author = meta.author;
+    if (meta?.thumbnail) base.thumbnail = meta.thumbnail;
+    if (meta?.lengthSeconds && meta.lengthSeconds > 30) base.durationSec = meta.lengthSeconds;
   }
 
   if (parsed.platform !== "file") {

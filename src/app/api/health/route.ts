@@ -14,13 +14,14 @@ export async function GET() {
     time: new Date().toISOString(),
     store: getStore().kind,
     engines: {
-      transcript: "captions-or-generated",
+      transcript: "youtube-captions-first",
       scoring: "heuristic-v2",
       llm: llmStatus(),
       renderer: {
         available: renderer.enabled,
         ffmpeg: renderer.ffmpeg,
-        ytdlp: renderer.ytdlp,
+        downloader: renderer.downloader,
+        storage: renderer.storage,
       },
     },
   });

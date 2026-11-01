@@ -5,6 +5,7 @@ import type { SourceInfo, TranscriptSegment } from "@/lib/types";
 import { clamp, createRng, shuffle } from "@/lib/utils";
 import { run } from "@/lib/proc";
 import { BLOCKS, FILLERS } from "./content";
+import { fetchYoutubeCaptions } from "./youtube";
 
 export interface TranscriptResult {
   segments: TranscriptSegment[];
@@ -222,30 +223,12 @@ async function fetchTimedText(source: SourceInfo): Promise<TranscriptSegment[]> 
   return [];
 }
 
-let reachable: { value: boolean; at: number } | null = null;
-
-async function youtubeReachable(): Promise<boolean> {
-  if (reachable && Date.now() - reachable.at < 5 * 60 * 1000) return reachable.value;
-  let value = false;
-  try {
-    const res = await fetch("https://www.youtube.com/generate_204", {
-      signal: AbortSignal.timeout(1500),
-      cache: "no-store",
-    });
-    value = res.status < 500;
-  } catch {
-    value = false;
-  }
-  reachable = { value, at: Date.now() };
-  return value;
-}
-
 /**
  * Prefers real captions (so previews are frame-accurate); falls back to the
  * generated engine so the product always works, even offline.
  */
 export async function getTranscript(source: SourceInfo): Promise<TranscriptResult> {
-  if (source.platform === "youtube" && source.videoId && (await youtubeReachable())) {
+  if (source.platform === "youtube" && source.videoId) {
     const fromYtDlp = await fetchYtDlpCaptions(source);
     if (fromYtDlp.length > 12) {
       return {
@@ -253,9 +236,21 @@ export async function getTranscript(source: SourceInfo): Promise<TranscriptResul
         engine: "captions",
         words: fromYtDlp.reduce((total, segment) => total + wordCount(segment.text), 0),
         language: "en",
-        note: "Captions sourced from the video (frame-accurate timings).",
+        note: "Captions pulled from the video itself, so timings are frame-accurate.",
       };
     }
+
+    const fromYoutube = await fetchYoutubeCaptions(source.videoId).catch(() => null);
+    if (fromYoutube && fromYoutube.segments.length > 12) {
+      return {
+        segments: fromYoutube.segments,
+        engine: "captions",
+        words: fromYoutube.segments.reduce((total, segment) => total + wordCount(segment.text), 0),
+        language: fromYoutube.language || "en",
+        note: "Captions pulled from the video itself, so timings are frame-accurate.",
+      };
+    }
+
     const timedText = await fetchTimedText(source);
     if (timedText.length > 12) {
       return {
@@ -263,7 +258,7 @@ export async function getTranscript(source: SourceInfo): Promise<TranscriptResul
         engine: "captions",
         words: timedText.reduce((total, segment) => total + wordCount(segment.text), 0),
         language: "en",
-        note: "Captions sourced from the video (frame-accurate timings).",
+        note: "Captions pulled from the video itself, so timings are frame-accurate.",
       };
     }
   }

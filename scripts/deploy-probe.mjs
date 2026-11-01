@@ -36,7 +36,7 @@ async function hit(path, init = {}) {
       ...(init.body ? { "content-type": "application/json" } : {}),
       ...(init.headers ?? {}),
     },
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(240_000),
   });
   remember(res);
   return res;
@@ -66,6 +66,10 @@ async function main() {
   const me2 = await hit("/api/me");
   const user2 = (await me2.json().catch(() => ({}))).user;
   log("me-stable", user1?.id === user2?.id);
+
+  const diag = await hit(`/api/diag?key=${encodeURIComponent(process.env.DIAG_KEY ?? "cf-diag-7f3a91")}&v=aircAruvnKk`);
+  const diagBody = await diag.json().catch(() => ({}));
+  log("diag", diag.status, JSON.stringify(diagBody).slice(0, 900));
 
   const created = await hit("/api/projects", {
     method: "POST",
@@ -100,6 +104,10 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
   log("project", project?.status, project?.engine, "words", project?.words, "minutes", project?.minutesProcessed);
+  log("duration", `${project?.source?.durationSec}s`, "|", project?.source?.title);
+  for (const segment of (project?.transcript ?? []).slice(0, 3)) {
+    log(`  transcript ${segment.start}-${segment.end}: ${segment.text.slice(0, 90)}`);
+  }
   log("clips", project?.clips?.length ?? 0);
   for (const clip of project?.clips ?? []) {
     log(`  ${clip.scores.virality} | ${Math.round(clip.durationSec)}s | ${clip.title}`);
@@ -122,8 +130,22 @@ async function main() {
     log("download", format, res.status, `${body.length}b`);
   }
 
+  const renderStarted = Date.now();
   const render = await hit(`/api/clips/${clip.id}/render`, { method: "POST" });
-  log("render", render.status, JSON.stringify(await render.json().catch(() => ({}))).slice(0, 200));
+  const renderBody = await render.json().catch(() => ({}));
+  log("render", render.status, `${((Date.now() - renderStarted) / 1000).toFixed(1)}s`, JSON.stringify(renderBody).slice(0, 400));
+
+  const renderUrl = renderBody?.render?.url;
+  if (renderUrl) {
+    const absolute = renderUrl.startsWith("http") ? renderUrl : `${target}${renderUrl}`;
+    const file = await fetch(absolute, { signal: AbortSignal.timeout(60_000) }).catch(() => null);
+    if (file) {
+      const bytes = (await file.arrayBuffer()).byteLength;
+      log("render-file", file.status, file.headers.get("content-type"), `${bytes}b`, absolute.slice(0, 90));
+    } else {
+      log("render-file", "fetch failed");
+    }
+  }
 
   const list = await hit("/api/projects");
   const listBody = await list.json().catch(() => ({}));

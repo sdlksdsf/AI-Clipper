@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { SourceInfo } from "@/lib/types";
 
 /**
@@ -26,8 +27,63 @@ export interface ResolveResult {
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-export function ytdlAvailable() {
-  return true;
+type YtdlApi = { getInfo: (url: string, options?: Record<string, unknown>) => Promise<Info> };
+
+type LoadedResolver = { api: YtdlApi | null; error: string | null };
+let cachedResolver: LoadedResolver | null = null;
+
+function short(error: unknown) {
+  return String((error as Error)?.message ?? error).split("\n")[0].slice(0, 160);
+}
+
+function pickApi(mod: unknown): YtdlApi | null {
+  const candidate = mod as Record<string, unknown> | null;
+  if (candidate && typeof candidate.getInfo === "function") return candidate as unknown as YtdlApi;
+  const fallback = candidate?.default as Record<string, unknown> | undefined;
+  if (fallback && typeof fallback.getInfo === "function") return fallback as unknown as YtdlApi;
+  return null;
+}
+
+/**
+ * Resolver loading is deliberately defensive: serverless bundlers move CJS
+ * packages around, so try the ESM namespace first and fall back to a CommonJS
+ * require rooted at the app directory. Whichever path works is cached, and the
+ * failure text is kept so /api/diag and /render can explain themselves.
+ */
+export async function loadResolver(force = false): Promise<LoadedResolver> {
+  if (!force && cachedResolver) return cachedResolver;
+  const attempts: string[] = [];
+
+  try {
+    const api = pickApi(await import("@distube/ytdl-core"));
+    if (api) {
+      cachedResolver = { api, error: null };
+      return cachedResolver;
+    }
+    attempts.push("esm: module has no getInfo");
+  } catch (error) {
+    attempts.push(`esm: ${short(error)}`);
+  }
+
+  try {
+    const { createRequire } = await import("node:module");
+    const req = createRequire(path.join(process.cwd(), "package.json"));
+    const api = pickApi(req("@distube/ytdl-core"));
+    if (api) {
+      cachedResolver = { api, error: null };
+      return cachedResolver;
+    }
+    attempts.push("require: module has no getInfo");
+  } catch (error) {
+    attempts.push(`require: ${short(error)}`);
+  }
+
+  cachedResolver = { api: null, error: attempts.join(" | ") };
+  return cachedResolver;
+}
+
+export async function ytdlAvailable() {
+  return Boolean((await loadResolver()).api);
 }
 
 type Info = {
@@ -65,10 +121,15 @@ function headers() {
 }
 
 async function resolveYouTube(url: string, maxHeight: number): Promise<ResolveResult> {
-  const ytdl = (await import("@distube/ytdl-core").catch(() => null)) as unknown as {
-    getInfo: (url: string, options?: Record<string, unknown>) => Promise<Info>;
-  } | null;
-  if (!ytdl?.getInfo) return { ok: false, inputs: [], message: "The stream resolver isn't available on this host." };
+  const resolver = await loadResolver();
+  if (!resolver.api) {
+    return {
+      ok: false,
+      inputs: [],
+      message: `The stream resolver isn't available on this host (${resolver.error ?? "unknown error"}).`,
+    };
+  }
+  const ytdl = resolver.api;
 
   let info: Info;
   try {

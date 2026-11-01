@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { youtubeDiag, fetchYoutubeCaptions } from "@/lib/analysis/youtube";
 import { rendererStatus } from "@/lib/render";
+import { loadResolver } from "@/lib/download";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,5 +37,6 @@ export async function GET(request: Request) {
       chars: captions.segments.reduce((total, segment) => total + segment.text.length, 0),
     },
     renderer: await rendererStatus(),
+    resolver: await loadResolver(),
   });
 }

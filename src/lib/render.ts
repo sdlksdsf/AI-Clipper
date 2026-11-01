@@ -69,7 +69,7 @@ export async function rendererStatus(force = false): Promise<RendererStatus> {
   const value: RendererStatus = {
     ffmpeg: Boolean(binary),
     ffmpegPath: binary,
-    downloader: ytdlAvailable(),
+    downloader: await ytdlAvailable(),
     storage: process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY ? "supabase" : "local",
     enabled: Boolean(binary),
     dir: RENDER_DIR,

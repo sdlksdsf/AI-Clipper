@@ -213,11 +213,41 @@ async function getText(url: string, timeoutMs = 9000): Promise<string | null> {
   return body || null;
 }
 
-async function captionsFromUrl(url: string): Promise<TranscriptSegment[]> {
+/** Piped sometimes hands back HTML-escaped or root-relative caption URLs. */
+function normaliseUrl(url: string, host?: string) {
+  const cleaned = url.replace(/&amp;/g, "&").replace(/\\\//g, "/").trim();
+  if (/^https?:\/\//i.test(cleaned)) return cleaned;
+  if (cleaned.startsWith("/") && host) return `${host}${cleaned}`;
+  return cleaned;
+}
+
+const captionDebug: Array<{ url: string; bytes: number; cues: number; head: string }> = [];
+
+async function captionsFromUrl(rawUrl: string, host?: string): Promise<TranscriptSegment[]> {
+  const url = normaliseUrl(rawUrl, host);
   if (!url) return [];
-  const body = await getText(url);
-  if (!body) return [];
-  const segments = tidy(parseCaptionText(body));
+  let body = await getText(url);
+  let segments = body ? tidy(parseCaptionText(body)) : [];
+
+  // timedtext answers an empty document for some query shapes; json3 is the
+  // flavour that keeps working, so retry with an explicit format.
+  if (body && segments.length <= 4 && /timedtext/.test(url) && !/fmt=/.test(url)) {
+    const retry = await getText(`${url}&fmt=json3`);
+    const retrySegments = retry ? tidy(parseCaptionText(retry)) : [];
+    if (retrySegments.length > segments.length) {
+      body = retry;
+      segments = retrySegments;
+    }
+  }
+
+  captionDebug.push({
+    url: url.slice(0, 120),
+    bytes: body?.length ?? 0,
+    cues: segments.length,
+    head: (body ?? "").slice(0, 90).replace(/\s+/g, " "),
+  });
+  if (captionDebug.length > 6) captionDebug.shift();
+
   return segments.length > 4 ? segments : [];
 }
 
@@ -306,7 +336,7 @@ async function fromPiped(host: string, videoId: string, maxHeight: number): Prom
   const payload = await getJson(`${host}/streams/${videoId}`);
   if (!payload) return null;
   const caption = pipedCaptions(payload);
-  const segments = caption ? await captionsFromUrl(caption.url) : [];
+  const segments = caption ? await captionsFromUrl(caption.url, host) : [];
   const { video, audio } = pipedStreams(payload, maxHeight);
   const source: ProxySources = {
     ok: Boolean(video || segments.length),
@@ -325,7 +355,7 @@ async function fromInvidious(host: string, videoId: string, maxHeight: number): 
   const captions = asArray(payload.captions);
   const pick =
     captions.find((track) => text(track.language_code).startsWith("en")) ?? captions[0] ?? null;
-  const segments = pick ? await captionsFromUrl(text(pick.url)) : [];
+  const segments = pick ? await captionsFromUrl(text(pick.url), host) : [];
   const { video, audio } = invidiousStreams(payload, maxHeight);
   const source: ProxySources = {
     ok: Boolean(video || segments.length),
@@ -424,5 +454,6 @@ export async function proxyDiag(videoId: string) {
     video: sources?.video ? { height: sources.video.height, label: sources.video.label } : null,
     audio: sources?.audio ? { label: sources.audio.label } : null,
     tried: sources?.tried ?? [],
+    captionDebug: captionDebug.slice(-4),
   };
 }

@@ -69,7 +69,8 @@ async function main() {
 
   const diag = await hit(`/api/diag?key=${encodeURIComponent(process.env.DIAG_KEY ?? "cf-diag-7f3a91")}&v=aircAruvnKk`);
   const diagBody = await diag.json().catch(() => ({}));
-  log("diag", diag.status, JSON.stringify(diagBody).slice(0, 900));
+  log("diag", diag.status, JSON.stringify(diagBody).slice(0, 700));
+  log("diag-proxy", JSON.stringify(diagBody.proxy ?? {}).slice(0, 900));
 
   const created = await hit("/api/projects", {
     method: "POST",

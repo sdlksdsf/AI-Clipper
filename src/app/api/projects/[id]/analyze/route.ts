@@ -3,7 +3,7 @@ import { getStore } from "@/lib/db";
 import { runAnalysis } from "@/lib/analysis";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 interface Params {

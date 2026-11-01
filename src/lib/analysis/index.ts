@@ -58,6 +58,7 @@ export async function runAnalysis(projectId: string): Promise<Project | null> {
       transcript: transcript.segments,
       words: transcript.words,
       engine: transcript.engine,
+      analysisNote: transcript.note,
     });
     await sleep(360);
 

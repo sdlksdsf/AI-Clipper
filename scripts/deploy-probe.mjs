@@ -105,6 +105,7 @@ async function main() {
   }
   log("project", project?.status, project?.engine, "words", project?.words, "minutes", project?.minutesProcessed);
   log("duration", `${project?.source?.durationSec}s`, "|", project?.source?.title);
+  log("note", project?.engine, "|", project?.analysisNote ?? "");
   for (const segment of (project?.transcript ?? []).slice(0, 3)) {
     log(`  transcript ${segment.start}-${segment.end}: ${segment.text.slice(0, 90)}`);
   }

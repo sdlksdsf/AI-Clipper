@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { youtubeDiag, fetchYoutubeCaptions } from "@/lib/analysis/youtube";
 import { rendererStatus } from "@/lib/render";
 import { loadResolver } from "@/lib/download";
+import { proxyDiag } from "@/lib/analysis/proxy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 240;
 
 /**
  * Deployment diagnostic. Answers "what can this host actually reach?" without
@@ -38,5 +39,6 @@ export async function GET(request: Request) {
     },
     renderer: await rendererStatus(),
     resolver: await loadResolver(),
+    proxy: await proxyDiag(videoId),
   });
 }

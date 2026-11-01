@@ -134,6 +134,7 @@ export interface Project {
   updatedAt: string;
   analysisStartedAt?: string;
   error?: string;
+  analysisNote?: string;
   minutesProcessed: number;
   words: number;
 }

@@ -9,6 +9,7 @@ import {
   Check,
   Clock,
   Copy,
+  Info,
   Loader2,
   Plus,
   Radio,
@@ -290,6 +291,18 @@ function ResultsView({ initial }: { initial: Project }) {
           </Link>
         </div>
       </div>
+
+      {project.engine === "generated" ? (
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-300/25 bg-amber-300/[0.06] px-3 py-2 text-[11.5px] leading-relaxed text-amber-100/90">
+          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <p>
+            {project.analysisNote ??
+              "No captions were reachable for this video, so moments are estimated."}{" "}
+            Preview still plays the real footage and exports still render — cut points may land a
+            beat early or late.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[272px_minmax(0,1fr)] xl:grid-cols-[272px_minmax(0,1fr)_252px]">
         {/* clip list */}

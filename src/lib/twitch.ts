@@ -4,7 +4,11 @@
  * Twitch's public web GraphQL endpoint answers unauthenticated requests with the
  * same client id the website itself uses, so a pasted clip link can be resolved
  * into real metadata (title, channel, duration, thumbnail) and a real MP4 that
- * ffmpeg can cut. VODs and live channels need a token, so those keep the honest
+ * ffmpeg can cut. The `videoQualities` URLs alone are not enough — they live
+ * behind `/nauth/` and answer 401 without the clip's public playback token, which
+ * the same query hands out, so the token is appended as `?sig=…&token=…`.
+ *
+ * VODs and live channels need a user OAuth token, so those keep the honest
  * "can't fetch this" message instead of pretending.
  */
 
@@ -16,6 +20,7 @@ export interface TwitchClip {
   thumbnail?: string;
   mp4?: string;
   quality?: string;
+  signed?: boolean;
 }
 
 const CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
@@ -28,6 +33,14 @@ const CLIP_FIELDS = `
   thumbnailURL
   videoQualities { sourceURL quality frameRate }
   broadcaster { displayName }
+`;
+
+/** The public playback token that unlocks the clip's /nauth/ media URL. */
+const CLIP_TOKEN_FIELD = `
+  playbackAccessToken(params: { platform: "web", playerBackend: "mediaplayer", playerType: "site" }) {
+    signature
+    value
+  }
 `;
 
 const cache = new Map<string, { value: TwitchClip | null; at: number }>();
@@ -74,14 +87,23 @@ function readClip(node: Loose): TwitchClip | null {
       .slice()
       .sort((a, b) => Number(b.quality) - Number(a.quality))[0] ?? qualities[qualities.length - 1];
   const broadcaster = asObject(node.broadcaster);
+  const token = asObject(node.playbackAccessToken);
+  const signature = typeof token?.signature === "string" ? token.signature : "";
+  const value = typeof token?.value === "string" ? token.value : "";
+  const signed =
+    best?.url && signature && value
+      ? `${best.url}${best.url.includes("?") ? "&" : "?"}sig=${encodeURIComponent(signature)}&token=${encodeURIComponent(value)}`
+      : best?.url;
+
   return {
     slug,
     title: String(node.title ?? "Twitch clip"),
     author: String(broadcaster?.displayName ?? "Twitch"),
     durationSec: Number(node.durationSeconds ?? 0) || 30,
     thumbnail: typeof node.thumbnailURL === "string" ? node.thumbnailURL : undefined,
-    mp4: best?.url,
+    mp4: signed,
     quality: best?.quality,
+    signed: Boolean(signature && value),
   };
 }
 
@@ -90,7 +112,10 @@ export async function fetchTwitchClip(slug: string): Promise<TwitchClip | null> 
   const cached = cache.get(slug);
   if (cached && Date.now() - cached.at < TTL) return cached.value;
 
-  const data = await gql(`query Clip($slug: ID!) { clip(slug: $slug) { ${CLIP_FIELDS} } }`, { slug });
+  const data = await gql(
+    `query Clip($slug: ID!) { clip(slug: $slug) { ${CLIP_FIELDS} ${CLIP_TOKEN_FIELD} } }`,
+    { slug },
+  );
   const clip = readClip(asObject(asObject(data?.data)?.clip) ?? {});
   cache.set(slug, { value: clip, at: Date.now() });
   return clip;
@@ -99,7 +124,7 @@ export async function fetchTwitchClip(slug: string): Promise<TwitchClip | null> 
 /** Newest clips for a channel — used when someone pastes a channel URL. */
 export async function fetchChannelClips(login: string, limit = 3): Promise<TwitchClip[]> {
   const data = await gql(
-    `query Clips($login: String!, $first: Int!) { user(login: $login) { clips(first: $first) { edges { node { ${CLIP_FIELDS} } } } } }`,
+    `query Clips($login: String!, $first: Int!) { user(login: $login) { clips(first: $first) { edges { node { ${CLIP_FIELDS} ${CLIP_TOKEN_FIELD} } } } } }`,
     { login, first: limit },
   );
   const edges = asArray(asObject(asObject(asObject(data?.data)?.user)?.clips)?.edges);
@@ -112,6 +137,14 @@ export async function fetchChannelClips(login: string, limit = 3): Promise<Twitc
 export async function twitchDiag(slug = "FrozenCuteYogurt") {
   const clip = await fetchTwitchClip(slug);
   return clip
-    ? { ok: true, slug: clip.slug, title: clip.title.slice(0, 60), duration: clip.durationSec, mp4: Boolean(clip.mp4), quality: clip.quality }
+    ? {
+        ok: true,
+        slug: clip.slug,
+        title: clip.title.slice(0, 60),
+        duration: clip.durationSec,
+        mp4: Boolean(clip.mp4),
+        signed: Boolean(clip.signed),
+        quality: clip.quality,
+      }
     : { ok: false, slug };
 }

@@ -202,7 +202,8 @@ async function probeTwitchMedia() {
     method: "POST",
     headers: { "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko", "content-type": "application/json" },
     body: JSON.stringify({
-      query: 'query { user(login: "shroud") { clips(first: 1) { edges { node { slug videoQualities { sourceURL quality } } } } } }',
+      query:
+        'query { user(login: "shroud") { clips(first: 1) { edges { node { slug videoQualities { sourceURL quality } playbackAccessToken(params: { platform: "web", playerBackend: "mediaplayer", playerType: "site" }) { signature value } } } } } }',
     }),
     signal: AbortSignal.timeout(12000),
   }).catch(() => null);
@@ -218,15 +219,34 @@ async function probeTwitchMedia() {
     return;
   }
   const best = qualities.sort((a, b) => Number(b.quality) - Number(a.quality))[0];
-  console.log(`probe-sources: twitch-media slug=${node.slug} quality=${best.quality} url=${String(best.sourceURL).slice(0, 80)}`);
+  const token = node.playbackAccessToken ?? {};
+  const signedUrl =
+    token.signature && token.value
+      ? `${best.sourceURL}${String(best.sourceURL).includes("?") ? "&" : "?"}sig=${encodeURIComponent(token.signature)}&token=${encodeURIComponent(token.value)}`
+      : best.sourceURL;
+  console.log(
+    `probe-sources: twitch-media slug=${node.slug} quality=${best.quality} token=${Boolean(token.signature)} url=${String(best.sourceURL).slice(0, 80)}`,
+  );
 
-  for (const [label, headers] of [
-    ["plain", { "user-agent": UA }],
-    ["twitch-referer", { "user-agent": UA, referer: "https://clips.twitch.tv/" }],
-    ["youtube-referer", { "user-agent": UA, referer: "https://www.youtube.com/" }],
+  const usher =
+    token.signature && token.value
+      ? `https://usher.ttvnw.net/vod/${node.slug}.m3u8?allow_source=true&allow_audio_only=true&p=${Math.floor(Math.random() * 1e9)}&sig=${encodeURIComponent(token.signature)}&token=${encodeURIComponent(token.value)}`
+      : null;
+  if (usher) {
+    const res = await fetch(usher, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(15000) }).catch(() => null);
+    const body = res ? await res.text().catch(() => "") : "";
+    console.log(
+      `probe-sources: twitch-usher ${res?.status ?? "ERR"} ${body.length}b variants=${(body.match(/#EXT-X-STREAM-INF/g) ?? []).length} :: ${body.slice(0, 80).replace(/\s+/g, " ")}`,
+    );
+  }
+
+  for (const [label, headers, url] of [
+    ["plain", { "user-agent": UA }, best.sourceURL],
+    ["signed", { "user-agent": UA }, signedUrl],
+    ["signed-twitch-referer", { "user-agent": UA, referer: "https://clips.twitch.tv/" }, signedUrl],
   ]) {
     const started = Date.now();
-    const media = await fetch(best.sourceURL, {
+    const media = await fetch(url, {
       headers: { ...headers, range: "bytes=0-2047" },
       signal: AbortSignal.timeout(15000),
     }).catch((error) => ({ status: `ERR ${String(error?.message ?? error).slice(0, 60)}`, headers: new Map(), arrayBuffer: async () => new ArrayBuffer(0) }));
@@ -243,7 +263,7 @@ async function probeTwitchMedia() {
     const out = "/tmp/twitch-probe.mp4";
     const result = spawnSync(
       installer.path,
-      ["-hide_banner", "-loglevel", "error", "-y", "-ss", "1", "-t", "2", "-user_agent", UA, "-headers", "Referer: https://clips.twitch.tv/\r\n", "-i", best.sourceURL, "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", out],
+      ["-hide_banner", "-loglevel", "error", "-y", "-ss", "1", "-t", "2", "-user_agent", UA, "-i", signedUrl, "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", out],
       { timeout: 120000, encoding: "utf8" },
     );
     const stat = await import("node:fs").then((fs) => (fs.existsSync(out) ? fs.statSync(out).size : 0)).catch(() => 0);

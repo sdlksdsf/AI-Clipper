@@ -453,7 +453,7 @@ export async function proxyDiag(videoId: string) {
       : null,
     video: sources?.video ? { height: sources.video.height, label: sources.video.label } : null,
     audio: sources?.audio ? { label: sources.audio.label } : null,
-    tried: sources?.tried ?? [],
     captionDebug: captionDebug.slice(-4),
+    tried: sources?.tried ?? [],
   };
 }

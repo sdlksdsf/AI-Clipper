@@ -50,6 +50,12 @@ const BROWSER_HEADERS: Record<string, string> = {
 
 const WEB_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 
+/** Optional signed-in cookie: the only reliable way past datacenter bot checks. */
+function cookieHeader(): Record<string, string> {
+  const cookie = process.env.YOUTUBE_COOKIE?.trim();
+  return cookie ? { cookie } : {};
+}
+
 /* ───────────────────────────── helpers ─────────────────────────────────── */
 
 /** Extracts a balanced JSON object that starts at `from` (must point at "{"). */
@@ -138,7 +144,7 @@ export function youtubeVideoIdFromUrl(url: string): string | null {
 
 async function fromWatchPage(videoId: string): Promise<YoutubeMeta | null> {
   const res = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=en&has_verified=1&bpctr=9999999999`, {
-    headers: BROWSER_HEADERS,
+    headers: { ...BROWSER_HEADERS, ...cookieHeader() },
     signal: AbortSignal.timeout(9000),
     cache: "no-store",
   }).catch(() => null);
@@ -175,6 +181,7 @@ async function fromInnerTube(videoId: string, client: "WEB" | "ANDROID"): Promis
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...cookieHeader(),
       "User-Agent": context.client.userAgent,
       "X-YouTube-Client-Name": client === "WEB" ? "1" : "3",
       "X-YouTube-Client-Version": context.client.clientVersion,
@@ -321,6 +328,26 @@ async function fetchTrack(baseUrl: string): Promise<TranscriptSegment[]> {
   return [];
 }
 
+
+async function captionsViaCookie(videoId: string): Promise<TranscriptSegment[]> {
+  if (!process.env.YOUTUBE_COOKIE) return [];
+  const { loadResolver } = await import("@/lib/download");
+  const resolver = await loadResolver();
+  if (!resolver.api) return [];
+  const info = (await resolver.api.getInfo(`https://www.youtube.com/watch?v=${videoId}`, {
+    requestOptions: { headers: { ...cookieHeader(), "user-agent": BROWSER_HEADERS["User-Agent"] } },
+  })) as unknown as { player_response?: Record<string, unknown> };
+  const player = info?.player_response ?? null;
+  if (!player) return [];
+  const tracks = readMeta(player, videoId, "innertube-web").captionTracks;
+  const track = tracks.find((item) => item.languageCode.startsWith("en") && item.kind !== "asr") ??
+    tracks.find((item) => item.languageCode.startsWith("en")) ??
+    tracks[0];
+  if (!track) return [];
+  const segments = await fetchTrack(track.baseUrl);
+  return segments.length > 8 ? segments : [];
+}
+
 /** Real captions for a YouTube video, in the best available language. */
 export async function fetchYoutubeCaptions(
   videoId: string,
@@ -338,6 +365,14 @@ export async function fetchYoutubeCaptions(
       captionCache.set(videoId, { value: segments, at: Date.now() });
       return { segments, language: track.languageCode || "en", meta };
     }
+  }
+
+  // With a signed-in cookie the JS resolver can read the player response, which is
+  // the only path that survives YouTube's datacenter bot check.
+  const cookieCaptions = await captionsViaCookie(videoId).catch(() => []);
+  if (cookieCaptions.length > 8) {
+    captionCache.set(videoId, { value: cookieCaptions, at: Date.now() });
+    return { segments: cookieCaptions, language: "en", meta };
   }
 
   // Last resort: the legacy endpoint, which sometimes still answers without a signature.

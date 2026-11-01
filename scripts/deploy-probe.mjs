@@ -154,6 +154,64 @@ async function main() {
 
   const anon = await fetch(`${target}/api/projects/${id}`, { signal: AbortSignal.timeout(15_000) });
   log("isolation", anon.status);
+
+  // Twitch is the one source this host can resolve without credentials, so a
+  // real clip proves the render pipeline end to end.
+  const slug = await twitchSlug();
+  log("twitch", slug ?? "no clip found");
+  if (!slug) return;
+
+  const twitchCreate = await hit("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({
+      url: `https://clips.twitch.tv/${slug}`,
+      clipCount: 2,
+      targetLength: "auto",
+      aspect: "9:16",
+      quality: "720p",
+      captionPreset: "bold",
+      captionFont: "display",
+      prompt: "",
+    }),
+  });
+  const twitchProject = (await twitchCreate.json().catch(() => ({})))?.project;
+  log("twitch-create", twitchCreate.status, twitchProject?.source?.title, "|", twitchProject?.source?.durationSec, "s");
+
+  const twitchAnalyze = await hit(`/api/projects/${twitchProject?.id}/analyze`, { method: "POST" });
+  const twitchReady = (await twitchAnalyze.json().catch(() => ({})))?.project;
+  log("twitch-analyze", twitchAnalyze.status, twitchReady?.engine, "|", twitchReady?.analysisNote ?? "", "| clips", twitchReady?.clips?.length);
+  const twitchClip = twitchReady?.clips?.[0];
+  if (!twitchClip) return;
+
+  const twitchRender = await hit(`/api/clips/${twitchClip.id}/render`, { method: "POST" });
+  const twitchRenderBody = await twitchRender.json().catch(() => ({}));
+  log("twitch-render", twitchRender.status, JSON.stringify(twitchRenderBody?.render ?? twitchRenderBody).slice(0, 300));
+
+  const twitchUrl = twitchRenderBody?.render?.url;
+  if (twitchUrl) {
+    const absolute = twitchUrl.startsWith("http") ? twitchUrl : `${target}${twitchUrl}`;
+    const file = await fetch(absolute, { signal: AbortSignal.timeout(90_000) }).catch(() => null);
+    if (file) {
+      const bytes = (await file.arrayBuffer()).byteLength;
+      log("twitch-file", file.status, file.headers.get("content-type"), `${bytes}b`, absolute.slice(0, 90));
+    }
+  }
+}
+
+async function twitchSlug() {
+  for (const login of ["shroud", "kaicenat", "xqc"]) {
+    const res = await fetch("https://gql.twitch.tv/gql", {
+      method: "POST",
+      headers: { "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko", "Content-Type": "application/json" },
+      body: JSON.stringify({ query: `query { user(login: "${login}") { clips(first: 1) { edges { node { slug } } } } }` }),
+      signal: AbortSignal.timeout(12_000),
+    }).catch(() => null);
+    if (!res?.ok) continue;
+    const data = await res.json().catch(() => ({}));
+    const slug = data?.data?.user?.clips?.edges?.[0]?.node?.slug;
+    if (slug) return slug;
+  }
+  return null;
 }
 
 main()

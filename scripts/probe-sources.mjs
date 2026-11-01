@@ -175,6 +175,12 @@ async function main() {
     }
   }
 
+  await probe("twitch-gql", "https://gql.twitch.tv/gql", {
+    method: "POST",
+    headers: { "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko", "content-type": "application/json" },
+    body: JSON.stringify({ query: 'query { user(login: "shroud") { displayName clips(first: 2) { edges { node { slug title durationSeconds videoQualities { sourceURL quality } } } } } }' }),
+  }, 12000);
+
   await probeClients(VIDEO);
   await probeTranscriptServices(VIDEO);
 

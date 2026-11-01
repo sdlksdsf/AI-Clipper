@@ -3,6 +3,7 @@ import { youtubeDiag, fetchYoutubeCaptions } from "@/lib/analysis/youtube";
 import { rendererStatus } from "@/lib/render";
 import { loadResolver } from "@/lib/download";
 import { proxyDiag } from "@/lib/analysis/proxy";
+import { twitchDiag } from "@/lib/twitch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,5 +41,6 @@ export async function GET(request: Request) {
     renderer: await rendererStatus(),
     resolver: await loadResolver(),
     proxy: await proxyDiag(videoId),
+    twitch: await twitchDiag(),
   });
 }

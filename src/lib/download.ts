@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { SourceInfo } from "@/lib/types";
 import { fetchProxyStreams } from "@/lib/analysis/proxy";
+import { fetchTwitchClip } from "@/lib/twitch";
 
 /**
  * Source resolution for rendering.
@@ -212,6 +213,22 @@ async function resolveYouTube(url: string, maxHeight: number, videoId: string | 
 export async function resolveSources(source: SourceInfo, maxHeight: number): Promise<ResolveResult> {
   if (source.platform === "youtube" && source.videoId) {
     return resolveYouTube(source.url, maxHeight, source.videoId);
+  }
+
+  if (source.platform === "twitch" && source.videoId && /clips\.twitch\.tv/i.test(source.url)) {
+    const clip = await fetchTwitchClip(source.videoId).catch(() => null);
+    if (clip?.mp4) {
+      return {
+        ok: true,
+        inputs: [{ url: clip.mp4, kind: "network", label: `twitch clip ${clip.quality ?? ""}`.trim() }],
+        via: "twitch-clip",
+      };
+    }
+    return {
+      ok: false,
+      inputs: [],
+      message: "Twitch didn't return an MP4 for that clip. Try again in a moment, or paste the clip link directly.",
+    };
   }
 
   if (source.platform === "file" || /\.(mp4|webm|mov|m4v|m3u8)(\?|$)/i.test(source.url)) {

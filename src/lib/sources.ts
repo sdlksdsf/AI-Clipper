@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import type { Platform, SourceInfo } from "@/lib/types";
 import { fetchYoutubeMeta } from "@/lib/analysis/youtube";
+import { fetchTwitchClip } from "@/lib/twitch";
 import { createRng } from "@/lib/utils";
 
 export interface ParsedSource {
@@ -67,6 +68,16 @@ export function parseSource(raw: string): ParsedSource | null {
         cleanUrl: `https://www.twitch.tv/videos/${parts[1]}`,
         watchUrl: `https://www.twitch.tv/videos/${parts[1]}`,
         kind: "video",
+      };
+    }
+    if (parts[1] === "clip" && parts[2]) {
+      return {
+        platform: "twitch",
+        videoId: parts[2],
+        cleanUrl: `https://clips.twitch.tv/${parts[2]}`,
+        watchUrl: `https://clips.twitch.tv/${parts[2]}`,
+        handle: parts[0],
+        kind: "clip",
       };
     }
     if (parts[0] === "clip" && parts[1]) {
@@ -263,6 +274,16 @@ export async function resolveSource(raw: string): Promise<SourceInfo | null> {
     if (meta?.author) base.author = meta.author;
     if (meta?.thumbnail) base.thumbnail = meta.thumbnail;
     if (meta?.lengthSeconds && meta.lengthSeconds > 30) base.durationSec = meta.lengthSeconds;
+  }
+
+  if (parsed.platform === "twitch" && parsed.kind === "clip" && parsed.videoId) {
+    const clip = await fetchTwitchClip(parsed.videoId).catch(() => null);
+    if (clip) {
+      base.title = clip.title;
+      base.author = clip.author || base.author;
+      base.durationSec = clip.durationSec;
+      base.thumbnail = clip.thumbnail ?? base.thumbnail;
+    }
   }
 
   if (parsed.platform !== "file") {

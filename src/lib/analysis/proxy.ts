@@ -37,10 +37,12 @@ export interface ProxySources {
 }
 
 const PIPED_HOSTS = [
+  // Verified reachable from a Vercel container; these instances come and go, so
+  // the list is walked with a retry rather than trusted blindly.
+  "https://api.piped.private.coffee",
+  "https://pipedapi.ducks.party",
   "https://pipedapi.kavin.rocks",
   "https://pipedapi.adminforge.de",
-  "https://api.piped.private.coffee",
-  "https://pipedapi.reallyaweso.me",
 ];
 
 const INVIDIOUS_HOSTS = [
@@ -364,7 +366,12 @@ export async function fetchProxySources(
   const tried: string[] = [];
   const candidates: ProxySources[] = [];
   for (const job of jobs) {
-    const source = await job.run().catch(() => null);
+    let source = await job.run().catch(() => null);
+    if (!source) {
+      // Instances routinely answer a bot-check once and succeed on a retry.
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      source = await job.run().catch(() => null);
+    }
     tried.push(`${job.label}: ${source ? "ok" : "no"}`);
     if (!source) continue;
     candidates.push(source);

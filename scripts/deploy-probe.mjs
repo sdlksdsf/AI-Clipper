@@ -46,7 +46,7 @@ async function main() {
   const home = await hit("/");
   const html = await home.text();
   log("home", home.status, (html.match(/<title>([^<]*)/) ?? [])[1] ?? "(no title)");
-  log("protected?", /Vercel Authentication|vercel.com/login/.test(html) || home.status === 401);
+  log("protected?", /Vercel Authentication|vercel\.com\/login/.test(html) || home.status === 401);
 
   for (const path of ["/pricing", "/login", "/signup", "/studio", "/privacy", "/terms", "/sitemap.xml", "/robots.txt", "/missing"]) {
     const res = await hit(path);

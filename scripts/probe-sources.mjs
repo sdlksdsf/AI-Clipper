@@ -184,6 +184,8 @@ async function main() {
   await probeClients(VIDEO);
   await probeTranscriptServices(VIDEO);
 
+  await probeTwitchMedia();
+
   try {
     const ytdl = (await import("@distube/ytdl-core")).default ?? (await import("@distube/ytdl-core"));
     const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${VIDEO}`);
@@ -194,3 +196,59 @@ async function main() {
 }
 
 main().catch((error) => console.log(`probe-sources: fatal ${String(error?.message ?? error).slice(0, 160)}`));
+
+async function probeTwitchMedia() {
+  const res = await fetch("https://gql.twitch.tv/gql", {
+    method: "POST",
+    headers: { "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko", "content-type": "application/json" },
+    body: JSON.stringify({
+      query: 'query { user(login: "shroud") { clips(first: 1) { edges { node { slug videoQualities { sourceURL quality } } } } } }',
+    }),
+    signal: AbortSignal.timeout(12000),
+  }).catch(() => null);
+  if (!res?.ok) {
+    console.log("probe-sources: twitch-media no gql");
+    return;
+  }
+  const data = await res.json().catch(() => ({}));
+  const node = data?.data?.user?.clips?.edges?.[0]?.node;
+  const qualities = (node?.videoQualities ?? []).filter((quality) => quality.sourceURL);
+  if (!qualities.length) {
+    console.log("probe-sources: twitch-media no qualities");
+    return;
+  }
+  const best = qualities.sort((a, b) => Number(b.quality) - Number(a.quality))[0];
+  console.log(`probe-sources: twitch-media slug=${node.slug} quality=${best.quality} url=${String(best.sourceURL).slice(0, 80)}`);
+
+  for (const [label, headers] of [
+    ["plain", { "user-agent": UA }],
+    ["twitch-referer", { "user-agent": UA, referer: "https://clips.twitch.tv/" }],
+    ["youtube-referer", { "user-agent": UA, referer: "https://www.youtube.com/" }],
+  ]) {
+    const started = Date.now();
+    const media = await fetch(best.sourceURL, {
+      headers: { ...headers, range: "bytes=0-2047" },
+      signal: AbortSignal.timeout(15000),
+    }).catch((error) => ({ status: `ERR ${String(error?.message ?? error).slice(0, 60)}`, headers: new Map(), arrayBuffer: async () => new ArrayBuffer(0) }));
+    const bytes = media.arrayBuffer ? (await media.arrayBuffer()).byteLength : 0;
+    console.log(
+      `probe-sources: twitch-media ${label} ${media.status} ${bytes}b ${Date.now() - started}ms type=${media.headers?.get?.("content-type") ?? "?"}`,
+    );
+  }
+
+  // Prove ffmpeg can cut it, using the same binary the deployment ships.
+  try {
+    const installer = (await import("@ffmpeg-installer/ffmpeg")).default ?? (await import("@ffmpeg-installer/ffmpeg"));
+    const { spawnSync } = await import("node:child_process");
+    const out = "/tmp/twitch-probe.mp4";
+    const result = spawnSync(
+      installer.path,
+      ["-hide_banner", "-loglevel", "error", "-y", "-ss", "1", "-t", "2", "-user_agent", UA, "-headers", "Referer: https://clips.twitch.tv/\r\n", "-i", best.sourceURL, "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", out],
+      { timeout: 120000, encoding: "utf8" },
+    );
+    const stat = await import("node:fs").then((fs) => (fs.existsSync(out) ? fs.statSync(out).size : 0)).catch(() => 0);
+    console.log(`probe-sources: twitch-ffmpeg code=${result.status} size=${stat} err=${String(result.stderr ?? "").slice(0, 120)}`);
+  } catch (error) {
+    console.log(`probe-sources: twitch-ffmpeg ERR ${String(error?.message ?? error).slice(0, 100)}`);
+  }
+}

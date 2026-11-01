@@ -233,11 +233,20 @@ export async function renderClip(project: Project, clip: Clip): Promise<RenderRe
     await fs.writeFile(assPath, buildAss(clip, width, height), "utf8");
     await fs.mkdir(FONT_DIR, { recursive: true }).catch(() => undefined);
 
+    // CDNs check the referer: send YouTube's to googlevideo and Twitch's to the
+    // Twitch CDN, otherwise the fetch comes back 401/403 even though the URL is valid.
+    const refererFor = (url: string) => {
+      if (/googlevideo\.com|youtube\.com|ytimg\.com/i.test(url)) return "https://www.youtube.com/";
+      if (/twitch\.tv|ttvnw\.net/i.test(url)) return "https://clips.twitch.tv/";
+      return null;
+    };
     const inputArgs: string[] = [];
     for (const input of sources.inputs) {
       inputArgs.push("-ss", clip.startSec.toFixed(2), "-t", duration.toFixed(2));
       if (input.kind === "network") {
-        inputArgs.push("-user_agent", BROWSER_UA, "-headers", "Referer: https://www.youtube.com/\r\n");
+        const referer = refererFor(input.url);
+        inputArgs.push("-user_agent", BROWSER_UA);
+        if (referer) inputArgs.push("-headers", `Referer: ${referer}\r\n`);
       }
       inputArgs.push("-i", input.url);
     }

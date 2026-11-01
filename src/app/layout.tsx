@@ -2,12 +2,13 @@ import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/instrument-sans";
 import "@fontsource-variable/jetbrains-mono";
+import { siteUrl } from "@/lib/site";
 import "./globals.css";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://clipforge.app";
+const site = siteUrl();
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: new URL(site),
   title: {
     default: "ClipForge — AI that finds the clip in your stream",
     template: "%s · ClipForge",
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
     description:
       "Long stream in, six viral-ready clips out. Ranked by virality, captioned, reframed and exportable at 1080p.",
     type: "website",
-    url: siteUrl,
+    url: site,
     siteName: "ClipForge",
   },
   twitter: {
@@ -36,7 +37,7 @@ export const metadata: Metadata = {
     description: "Turn any long video or stream into short clips ranked by virality.",
   },
   robots: { index: true, follow: true },
-  alternates: { canonical: siteUrl },
+  alternates: { canonical: site },
 };
 
 export const viewport: Viewport = {

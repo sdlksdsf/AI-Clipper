@@ -45,11 +45,11 @@ export async function runAnalysis(projectId: string): Promise<Project | null> {
       analysisStartedAt: startedAt,
       error: undefined,
     });
-    await sleep(650);
+    await sleep(320);
 
     await update({ stage: 1, progress: 18, stages: stagesAt(1) });
     const transcript = await getTranscript(project.source);
-    await sleep(450);
+    await sleep(240);
 
     await update({
       stage: 2,
@@ -59,10 +59,10 @@ export async function runAnalysis(projectId: string): Promise<Project | null> {
       words: transcript.words,
       engine: transcript.engine,
     });
-    await sleep(700);
+    await sleep(360);
 
     await update({ stage: 3, progress: 52, stages: stagesAt(3) });
-    await sleep(650);
+    await sleep(320);
 
     await update({ stage: 4, progress: 70, stages: stagesAt(4) });
     const { clips } = analyzeTranscript({
@@ -72,10 +72,10 @@ export async function runAnalysis(projectId: string): Promise<Project | null> {
       sourceAuthor: project.source.author,
       seed: project.id,
     });
-    await sleep(700);
+    await sleep(360);
 
     await update({ stage: 5, progress: 84, stages: stagesAt(5) });
-    await sleep(550);
+    await sleep(260);
 
     const polished = await polishClips(clips);
 

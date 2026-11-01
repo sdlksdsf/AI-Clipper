@@ -5,35 +5,9 @@ const VIDEO = process.env.PROBE_VIDEO || "aircAruvnKk";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-const PIPED = [
-  "https://pipedapi.kavin.rocks",
-  "https://pipedapi.adminforge.de",
-  "https://api.piped.private.coffee",
-  "https://pipedapi.ducks.party",
-  "https://pipedapi.leptons.xyz",
-  "https://pipedapi.drgns.space",
-  "https://piped-api.lunar.icu",
-  "https://api.piped.projectsegfau.lt",
-  "https://pipedapi.nosebs.ru",
-  "https://pipedapi.astartes.nl",
-  "https://pipedapi.orangenet.cc",
-  "https://pipedapi.reallyaweso.me",
-];
+const PIPED = ["https://pipedapi.kavin.rocks", "https://api.piped.private.coffee", "https://pipedapi.ducks.party"];
 
-const INVIDIOUS = [
-  "https://inv.nadeko.net",
-  "https://invidious.nerdvpn.de",
-  "https://yewtu.be",
-  "https://iv.melmac.space",
-  "https://invidious.privacyredirect.com",
-  "https://invidious.jing.rocks",
-  "https://inv.tux.pizza",
-  "https://invidious.dhusch.de",
-  "https://invidious.f5.si",
-  "https://invidious.protokolla.fi",
-  "https://iv.datura.network",
-  "https://invidious.materialio.us",
-];
+const INVIDIOUS = ["https://inv.nadeko.net", "https://yewtu.be", "https://invidious.f5.si"];
 
 async function probe(label, url, init = {}, timeout = 9000) {
   const started = Date.now();
@@ -49,6 +23,120 @@ async function probe(label, url, init = {}, timeout = 9000) {
     console.log(`probe-sources: ${label} ERR ${String(error?.message ?? error).slice(0, 120)} ${ms}ms`);
     return null;
   }
+}
+
+
+const CLIENTS = [
+  {
+    name: "ANDROID_VR",
+    key: "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w",
+    context: {
+      client: {
+        clientName: "ANDROID_VR",
+        clientVersion: "1.62.27",
+        androidSdkVersion: 32,
+        deviceMake: "Oculus",
+        deviceModel: "Quest 3",
+        osName: "Android",
+        osVersion: "12",
+        hl: "en",
+        gl: "US",
+        userAgent: "com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12; GB) gzip",
+      },
+    },
+    ua: "com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12; GB) gzip",
+  },
+  {
+    name: "IOS",
+    key: "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc",
+    context: {
+      client: {
+        clientName: "IOS",
+        clientVersion: "19.45.4",
+        deviceMake: "Apple",
+        deviceModel: "iPhone16,2",
+        osName: "iPhone",
+        osVersion: "18.1.0.22B83",
+        hl: "en",
+        gl: "US",
+        userAgent: "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)",
+      },
+    },
+    ua: "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)",
+  },
+  {
+    name: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+    key: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+    context: {
+      client: { clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER", clientVersion: "2.0", hl: "en", gl: "US" },
+      thirdParty: { embedUrl: "https://www.youtube.com/" },
+    },
+    ua: UA,
+  },
+  {
+    name: "WEB_EMBEDDED_PLAYER",
+    key: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+    context: {
+      client: { clientName: "WEB_EMBEDDED_PLAYER", clientVersion: "1.20240723.01.00", hl: "en", gl: "US" },
+      thirdParty: { embedUrl: "https://www.youtube.com/" },
+    },
+    ua: UA,
+  },
+  {
+    name: "MWEB",
+    key: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+    context: { client: { clientName: "MWEB", clientVersion: "2.20240726.01.00", hl: "en", gl: "US" } },
+    ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+  },
+];
+
+async function probeClients(videoId) {
+  for (const client of CLIENTS) {
+    const started = Date.now();
+    try {
+      const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${client.key}&prettyPrint=false`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": client.ua,
+          "x-youtube-client-name": String(
+            { ANDROID_VR: "28", IOS: "5", TVHTML5_SIMPLY_EMBEDDED_PLAYER: "85", WEB_EMBEDDED_PLAYER: "56", MWEB: "2" }[
+              client.name
+            ],
+          ),
+          "x-youtube-client-version": client.context.client.clientVersion,
+          origin: "https://www.youtube.com",
+        },
+        body: JSON.stringify({ context: client.context, videoId, contentCheckOk: true, racyCheckOk: true }),
+        signal: AbortSignal.timeout(9000),
+      });
+      const data = await res.json().catch(() => ({}));
+      const status = data?.playabilityStatus?.status ?? "?";
+      const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks?.length ?? 0;
+      const streams = (data?.streamingData?.formats?.length ?? 0) + (data?.streamingData?.adaptiveFormats?.length ?? 0);
+      console.log(
+        `probe-sources: innertube ${client.name} ${res.status} ${status} tracks=${tracks} streams=${streams} ${Date.now() - started}ms ${String(data?.playabilityStatus?.reason ?? "").slice(0, 60)}`,
+      );
+    } catch (error) {
+      console.log(`probe-sources: innertube ${client.name} ERR ${String(error?.message ?? error).slice(0, 90)}`);
+    }
+  }
+}
+
+async function probeTranscriptServices(videoId) {
+  const url = `https://www.youtube.com/watch?v=${videoId}`;
+  await probe("tactiq", "https://tactiq-apps-prod.tactiq.io/transcript", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ videoUrl: url, langCode: "en" }),
+  }, 12000);
+  await probe("kome", "https://api.kome.ai/api/tools/youtube-transcripts", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ video_id: videoId, format: true }),
+  }, 12000);
+  await probe("youtubetotranscript", `https://youtubetotranscript.com/transcript?v=${videoId}&current_language_code=en`, {}, 12000);
+  await probe("downsub", `https://get.downsub.com/?url=${encodeURIComponent(url)}`, {}, 12000);
 }
 
 async function main() {
@@ -86,6 +174,9 @@ async function main() {
       }
     }
   }
+
+  await probeClients(VIDEO);
+  await probeTranscriptServices(VIDEO);
 
   try {
     const ytdl = (await import("@distube/ytdl-core")).default ?? (await import("@distube/ytdl-core"));

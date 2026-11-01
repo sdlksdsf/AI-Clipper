@@ -119,22 +119,26 @@ line per step — handy when you cannot reach the deployment from your own netwo
 
   | Source | Metadata | Transcript | MP4 export |
   | --- | --- | --- | --- |
-  | Twitch clip link | ✅ live GraphQL | — (clip audio, no caption track) | ✅ real file |
+  | Twitch clip link | ✅ live GraphQL | — (clip audio has no caption track) | ✅ verified: 24.8 MB 1080p MP4 |
   | Direct `mp4` / `webm` link | ✅ | — | ✅ real file |
-  | YouTube | ✅ oEmbed + watch page | ✅ with `YOUTUBE_COOKIE`, otherwise estimated | ✅ with `YOUTUBE_COOKIE` |
+  | YouTube | ✅ oEmbed + watch page | ✅ real cues via Piped TTML | ✅ with `YOUTUBE_COOKIE` |
 
   YouTube answers server IPs with `LOGIN_REQUIRED` / "Sign in to confirm you're not
   a bot": the watch page loads but ships zero caption tracks, `timedtext` returns an
   empty body, and the alternate player clients (ANDROID, ANDROID_VR, IOS, TVHTML5,
-  WEB_EMBEDDED, MWEB) all refuse. Public Piped/Invidious instances are mostly shut
-  down or block datacenter traffic, and the free transcript services now require
-  their own auth tokens. `/api/diag` reports all of this live.
+  WEB_EMBEDDED, MWEB) all refuse. One Piped instance
+  (`api.piped.private.coffee`) still resolves the same videos from its own egress and
+  hands back full TTML subtitle tracks, which is how YouTube projects get real
+  transcripts today. Its stream URLs are bound to *its* IP, so they cannot be
+  downloaded here — hence the cookie for MP4 export. The other Piped/Invidious
+  instances and the free transcript services are dead or token-gated from a
+  datacenter. `/api/diag` reports all of this live.
 
-  The fix is a credential, not code: set `YOUTUBE_COOKIE` to the `Cookie:` header of
-  a signed-in YouTube session and the same server resolves captions and streams.
-  Today we could not obtain one, so the deployed app is honest about it: the studio
-  shows a banner when a video has no reachable captions, and the export panel
-  explains what to do instead of failing silently.
+  The fix for YouTube *export* is a credential, not code: set `YOUTUBE_COOKIE` to the
+  `Cookie:` header of a signed-in YouTube session and the same server resolves
+  streams. Without it the studio shows a banner when a video has no reachable
+  captions and the export panel explains exactly what to do instead of failing
+  silently. Twitch clips and direct video links export with no configuration.
 
 - **Caption quality depends on the source.** With captions reachable the transcript is real
   speech; otherwise a deterministic per-video transcript model is used and the project is marked

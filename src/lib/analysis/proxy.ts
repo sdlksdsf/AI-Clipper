@@ -203,11 +203,15 @@ function tidy(segments: TranscriptSegment[]): TranscriptSegment[] {
       merged.push({ ...segment });
       continue;
     }
-    const joined = `${last.text} ${segment.text}`.replace(/\s+/g, " ").trim();
+    const clean = segment.text.replace(/\s+/g, " ").trim();
+    // Auto-generated tracks repeat the previous line while it scrolls, and
+    // YouTube's TTML sometimes repeats a cue verbatim; drop both duplicates.
+    if (!clean || clean === last.text || last.text.endsWith(clean)) continue;
+    const joined = `${last.text} ${clean}`.replace(/\s+/g, " ").trim();
     const gap = segment.start - last.end;
     if (joined.split(" ").length <= 26 && gap < 0.7) {
       last.text = joined;
-      last.end = segment.end;
+      last.end = Math.max(last.end, segment.end);
     } else {
       merged.push({ ...segment });
     }

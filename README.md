@@ -5,8 +5,8 @@ zero, ranks the most viral moments, and hands back auto-edited vertical clips wi
 titles, hashtags and export files for YouTube Shorts, Instagram Reels and TikTok.
 
 - **Live app:** https://clipforge-platematch1.vercel.app
-- **Also live on:** https://clipforge-git-arena-f4715ce2-ai-clipper-platematch1.vercel.app
-- **Repo:** https://github.com/sdlksdsf/AI-Clipper (branch `arena/f4715ce2-ai-clipper`)
+- **Also live on:** https://clipforge-sigma-ten.vercel.app
+- **Repo:** https://github.com/sdlksdsf/AI-Clipper (branch `arena/ac32efc5-ai-clipper`)
 
 ## What it does
 
@@ -18,9 +18,14 @@ titles, hashtags and export files for YouTube Shorts, Instagram Reels and TikTok
    share the same inflated score) and signature deduplication (so the same take never ships twice).
 3. **Rank by virality** — every clip gets a 0–100 virality score plus hook / engagement /
    retention / emotion / shareability sub-scores and plain-language reasons, best first.
-4. **Edit and export** — 5 caption presets, 4 caption fonts, 9:16 / 1:1 / 16:9, 480p / 720p / 1080p,
-   adjustable clip start/end, per-clip title and hashtags, and downloads as SRT, VTT, TXT or a
-   JSON edit-decision-list for any NLE.
+4. **Watch it for real** — the editor plays the actual footage at the actual clip range (YouTube
+   embeds are driven over the postMessage API, direct video files seek to the in-point, Twitch
+   embeds start at the offset) with the styled captions overlaying the real playhead. No fake
+   preview timer.
+5. **Export a real MP4** — one click downloads the source range with a bundled static ffmpeg,
+   cuts on the clip in/out points, reframes to 9:16 / 1:1 / 16:9, burns the chosen caption style
+   and exports H.264/AAC at 480p / 720p / 1080p. Files are uploaded to Supabase Storage so the link
+   keeps working after the function instance is gone.
 
 ## Features
 
@@ -28,8 +33,9 @@ titles, hashtags and export files for YouTube Shorts, Instagram Reels and TikTok
 | --- | --- |
 | Landing page | URL-first hero, live clip showcase, editor preview, pricing, FAQ, legal pages |
 | Studio | Project list, new-project form (clips 1–6, length 0–60s, aspect, quality, caption style, focus prompt), live analysis progress, clip editor with per-field autosave |
-| Analysis | Percentile-normalised scoring, per-video seeded transcripts, real caption fetch when reachable, optional LLM polish (failure-safe) |
-| Exports | SRT / VTT / TXT / JSON EDL downloads, MP4 render when `ffmpeg` + `yt-dlp` exist on the host |
+| Analysis | Real YouTube captions (watch page → InnerTube → timedtext), sentence-boundary clip windows, percentile-normalised scoring, optional LLM polish (failure-safe) |
+| Preview | Real in-browser playback of the clip range with the caption overlay locked to the playhead |
+| Exports | Real MP4 (bundled ffmpeg, burned captions, up to 1080p) plus SRT / VTT / TXT / JSON EDL |
 | Accounts | Cookie sessions (`cf_sid`), guest accounts upgraded in place, password hashing, plan quotas |
 | Ops | `/api/health`, sitemap, robots, OG image, error and 404 pages, rate limiting |
 
@@ -60,15 +66,26 @@ downloads) works without any external service.
 | `SUPABASE_URL` | Supabase project URL — switches the store to PostgREST |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key used by the server-side store only |
 | `OPENAI_API_KEY` (optional) | Enables LLM title/hashtag polish; ignored when absent or offline |
+| `YOUTUBE_COOKIE` (optional) | Pasted `Cookie:` header from a signed-in browser session — unlocks MP4 export when YouTube asks the server to prove it is not a bot |
+| `FFMPEG_PATH` (optional) | Override the bundled static ffmpeg with another build |
+| `SUPABASE_RENDER_BUCKET` (optional) | Storage bucket for rendered MP4s (default `clipforge-renders`) |
+| `DIAG_KEY` (optional) | Enables `GET /api/diag?key=…&v=<videoId>`, which reports what the host can actually reach |
+| `YTDLP_PATH` (optional) | If a `yt-dlp` binary exists on the host it is used instead of the pure-JS resolver |
+
+MP4 rendering needs no extra binaries: `@ffmpeg-installer/ffmpeg` ships a static ffmpeg inside the
+deployment and `@distube/ytdl-core` resolves source streams in pure JS.
 
 Supabase schema lives in `supabase/schema.sql`; the same tables are already created in the
-deployed project (`cf_users`, `cf_sessions`, `cf_projects`).
+deployed project (`cf_users`, `cf_sessions`, `cf_projects`, plus the public `clipforge-renders`
+bucket used for rendered MP4s).
 
 ## Deploy
 
 The production deployment is Vercel project `clipforge` in team `platematch` and serves the
-`arena/f4715ce2-ai-clipper` branch. Two environment variables are set for production, preview and
-development: `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+`arena/ac32efc5-ai-clipper` branch. Environment variables set for production, preview and
+development: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `DIAG_KEY`; add `NEXT_PUBLIC_SITE_URL`
+for canonical metadata and `YOUTUBE_COOKIE` if you want MP4 export on videos that YouTube
+bot-checks.
 
 ```bash
 # after pushing to the branch
@@ -91,16 +108,19 @@ line per step — handy when you cannot reach the deployment from your own netwo
 | `POST /api/projects/[id]/analyze` | Run analysis and produce ranked clips |
 | `PATCH /api/clips/[id]` | Title, style, quality, trim (`startSec` / `endSec`) |
 | `GET /api/clips/[id]/download?format=srt|vtt|txt|json` | Export files |
-| `POST /api/clips/[id]/render` | MP4 render when the host has ffmpeg + yt-dlp |
+| `POST /api/clips/[id]/render` | Renders the clip to MP4 (cut, reframe, burned captions) and returns a durable URL |
+| `GET /api/renders/[file]` | Serves a locally rendered MP4 with `Range` support when no storage bucket is configured |
+| `GET /api/diag?key=…&v=<videoId>` | Key-gated probe: YouTube reachability, caption availability, ffmpeg and storage |
 | `GET /api/health` | Store, engines and renderer status |
 
 ## Known limits
 
-- **MP4 rendering is host-dependent.** Serverless has no `ffmpeg`/`yt-dlp`, so `/render` reports
-  `unsupported` and points at the caption/EDL downloads. Run the app on a VM or container with
-  both binaries (`pip install yt-dlp`, any static ffmpeg build) and rendering switches on by itself.
-- **Caption quality depends on the source.** With YouTube captions reachable the transcript is real;
-  otherwise the deterministic per-video transcript model is used, so titles and scores are
-  representative rather than literal.
+- **MP4 export depends on the source, not the host.** ffmpeg ships with the app, but YouTube
+  sometimes asks datacenter IPs to prove they are not a bot. When that happens `/render` returns a
+  clear message and suggests `YOUTUBE_COOKIE`; every other export keeps working, and preview still
+  plays the real range in the browser. Twitch and direct video URLs render without a cookie.
+- **Caption quality depends on the source.** With YouTube captions reachable the transcript is real
+  speech; otherwise a deterministic per-video transcript model is used and the project is marked
+  `engine: heuristic` so titles and scores are representative rather than literal."
 - **Storage is per-deployment.** File store writes go to `.data/` (ephemeral on serverless) — set
   the Supabase variables for durable records.

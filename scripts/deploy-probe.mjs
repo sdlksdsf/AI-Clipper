@@ -111,10 +111,10 @@ async function main() {
 
   const patched = await hit(`/api/clips/${clip.id}`, {
     method: "PATCH",
-    body: JSON.stringify({ title: "Deployed patch test", captionPreset: "karaoke", quality: "720p" }),
+    body: JSON.stringify({ title: "Deployed patch test", style: { preset: "karaoke", font: "mono" }, quality: "720p" }),
   });
   const patchedBody = await patched.json().catch(() => ({}));
-  log("patch", patched.status, patchedBody.clip?.title, patchedBody.clip?.captionPreset, patchedBody.clip?.quality);
+  log("patch", patched.status, patchedBody.clip?.title, patchedBody.clip?.style?.preset, patchedBody.clip?.style?.font, patchedBody.clip?.quality);
 
   for (const format of ["srt", "vtt", "txt", "json"]) {
     const res = await hit(`/api/clips/${clip.id}/download?format=${format}`);

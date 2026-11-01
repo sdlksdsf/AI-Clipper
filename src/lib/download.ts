@@ -1,6 +1,5 @@
 import path from "node:path";
 import type { SourceInfo } from "@/lib/types";
-import { fetchProxyStreams } from "@/lib/analysis/proxy";
 import { fetchTwitchClip } from "@/lib/twitch";
 
 /**
@@ -122,26 +121,14 @@ function headers() {
   return { "user-agent": UA, "accept-language": "en-US,en;q=0.9", ...extra };
 }
 
-async function viaProxy(videoId: string | null, maxHeight: number, reason: string, tried: string[]): Promise<ResolveResult> {
-  if (!videoId) return { ok: false, inputs: [], message: reason };
-  const proxied = await fetchProxyStreams(videoId, maxHeight).catch(() => null);
-  if (proxied?.video) {
-    const inputs: RenderInput[] = [{ url: proxied.video.url, kind: "network", label: proxied.video.label }];
-    if (proxied.audio) inputs.push({ url: proxied.audio.url, kind: "network", label: proxied.audio.label });
-    return { ok: true, inputs, via: `${proxied.via} ${proxied.video.label}` };
-  }
-  return { ok: false, inputs: [], message: reason, via: `tried ${tried.join(", ")}` };
-}
-
 async function resolveYouTube(url: string, maxHeight: number, videoId: string | null = null): Promise<ResolveResult> {
   const resolver = await loadResolver();
   if (!resolver.api) {
-    return viaProxy(
-      videoId,
-      maxHeight,
-      `The stream resolver isn't available on this host (${resolver.error ?? "unknown error"}).`,
-      ["resolver"],
-    );
+    return {
+      ok: false,
+      inputs: [],
+      message: `The stream resolver isn't available on this host (${resolver.error ?? "unknown error"}).`,
+    };
   }
   const ytdl = resolver.api;
 
@@ -151,19 +138,14 @@ async function resolveYouTube(url: string, maxHeight: number, videoId: string | 
   } catch (error) {
     const text = String((error as Error)?.message ?? error);
     if (/sign in|bot|confirm you|login_required|login required/i.test(text)) {
-      const fallback = await viaProxy(
-        videoId,
-        maxHeight,
-        "YouTube is asking this server to prove it isn't a bot. Add a YOUTUBE_COOKIE to unlock MP4 export for this video.",
-        ["youtube", "proxy"],
-      );
-      return fallback.ok ? fallback : { ...fallback, message: `YouTube blocked the stream lookup and no alternate source answered. ${fallback.message ?? ""}`.trim() };
+      return {
+        ok: false,
+        inputs: [],
+        message:
+          "YouTube is blocking stream lookups from this server and asked it to prove it isn't a bot. Add a YOUTUBE_COOKIE to unlock MP4 export, or paste a Twitch clip link, which exports here today.",
+      };
     }
-    const fallback = await viaProxy(videoId, maxHeight, `Couldn't read that video's streams (${text.slice(0, 120)}).`, [
-      "youtube",
-      "proxy",
-    ]);
-    return fallback;
+    return { ok: false, inputs: [], message: `Couldn't read that video's streams (${text.slice(0, 120)}).` };
   }
 
   const formats = info.formats.filter((format) => Boolean(format.url));
@@ -207,7 +189,7 @@ async function resolveYouTube(url: string, maxHeight: number, videoId: string | 
     return { ok: true, inputs: [{ url: video.url, kind: "network", label: "video only" }], via: "video-only" };
   }
 
-  return viaProxy(videoId, maxHeight, "No downloadable stream was offered for that video.", ["youtube", "proxy"]);
+  return { ok: false, inputs: [], message: "No downloadable stream was offered for that video." };
 }
 
 export async function resolveSources(source: SourceInfo, maxHeight: number): Promise<ResolveResult> {

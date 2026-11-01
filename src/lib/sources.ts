@@ -59,6 +59,18 @@ export function parseSource(raw: string): ParsedSource | null {
     };
   }
 
+  if (host.startsWith("clips.twitch.tv")) {
+    const slug = url.pathname.split("/").filter(Boolean)[0];
+    if (!slug) return null;
+    return {
+      platform: "twitch",
+      videoId: slug,
+      cleanUrl: `https://clips.twitch.tv/${slug}`,
+      watchUrl: `https://clips.twitch.tv/${slug}`,
+      kind: "clip",
+    };
+  }
+
   if (host.endsWith("twitch.tv")) {
     const parts = url.pathname.split("/").filter(Boolean);
     if (parts[0] === "videos" && parts[1]) {

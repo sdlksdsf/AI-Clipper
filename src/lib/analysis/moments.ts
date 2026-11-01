@@ -566,6 +566,65 @@ export interface AnalyzeOutput {
 export function analyzeTranscript(input: AnalyzeInput): AnalyzeOutput {
   const { segments, settings, seed } = input;
   const focus = parseFocus(settings.prompt);
+
+  // A 30-second Twitch clip is already a clip: ranking windows inside it would
+  // just hand back overlapping copies of the same moment.
+  const sourceEnd = segments.length ? segments[segments.length - 1].end : 0;
+  if (sourceEnd > 6 && sourceEnd <= 80) {
+    const text = segments.map((segment) => segment.text).join(" ");
+    const title = makeTitle(input.sourceTitle || text, 62);
+    const end = Number((sourceEnd - 0.1).toFixed(2));
+    const single: Clip = {
+      id: uid("clip_"),
+      index: 0,
+      title,
+      hook: makeTitle(segments[0]?.text ?? title, 54),
+      summary: stripFillers(segments[0]?.text ?? title),
+      description: `${stripFillers(segments[0]?.text ?? "")}\n\nClipped with ClipForge.`,
+      hashtags: ["#clips", "#shorts"],
+      titleIdeas: [title],
+      startSec: 0,
+      endSec: end,
+      durationSec: end,
+      scores: { virality: 86, hook: 84, engagement: 80, retention: 82, emotion: 74, shareability: 78 },
+      keywords: extractKeywords(text, 6),
+      signals: buildSignals(
+        normalise(segments.map((segment) => rawFeatures(segment.text)), focus),
+        {
+          startIndex: 0,
+          endIndex: segments.length - 1,
+          start: 0,
+          end,
+          duration: end,
+          score: 0.8,
+          hook: 0.7,
+          body: 0.6,
+          payoff: 0.6,
+          emotion: 0.5,
+          share: 0.6,
+          standalone: true,
+        } as Candidate,
+      ),
+      captionLines: buildCaptionLines(segments),
+      captionText: segments.map((segment) => segment.text).join("\n"),
+      transcript: segments,
+      speaker: segments[0]?.speaker,
+      style: {
+        preset: settings.captionPreset,
+        font: settings.captionFont,
+        size: 100,
+        uppercase: settings.captionPreset === "bold" || settings.captionPreset === "neon",
+        highlight: defaultHighlight(settings.captionPreset),
+        color: "#ffffff",
+        position: "lower",
+        background: settings.captionPreset === "clean",
+      },
+      quality: settings.quality,
+      render: { status: "idle" },
+      createdAt: new Date().toISOString(),
+    };
+    return { clips: [single], focus };
+  }
   const rng = createRng(`${seed}:windows`);
   const features = normalise(segments.map((segment) => rawFeatures(segment.text)), focus);
 

@@ -130,6 +130,31 @@ export function parseCaptionText(raw: string): TranscriptSegment[] {
     }
   }
 
+  // TTML is what Piped's timedtext proxy returns (`<p begin end>` cues). It has
+  // to be read before the generic XML branch, which only knows <text>.
+  if (/<tt\b/i.test(trimmed) || /<p\b[^>]*\bbegin=/i.test(trimmed)) {
+    const attribute = (attributes: string, name: string) =>
+      new RegExp(`${name}="([^"]+)"`, "i").exec(attributes)?.[1] ?? "";
+    const pattern = /<p\b([^>]*)>([\s\S]*?)<\/p>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(trimmed))) {
+      const begin = attribute(match[1], "begin");
+      const end = attribute(match[1], "end");
+      const dur = attribute(match[1], "dur");
+      const start = stampToSeconds(begin || "0");
+      const stop = end ? stampToSeconds(end) : start + (parseFloat(dur) || 2.4);
+      const value = decodeEntities(match[2]);
+      if (!value) continue;
+      segments.push({
+        start: Number(start.toFixed(2)),
+        end: Number(Math.max(start + 0.4, stop).toFixed(2)),
+        text: value,
+        speaker: "Host",
+      });
+    }
+    return segments;
+  }
+
   if (trimmed.startsWith("<")) {
     const pattern = /<text[^>]*start="([\d.]+)"[^>]*(?:dur="([\d.]+)")?[^>]*>([\s\S]*?)<\/text>/g;
     let match: RegExpExecArray | null;

@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 const SAMPLES = [
   { label: "3Blue1Brown", url: "https://www.youtube.com/watch?v=aircAruvnKk" },
   { label: "Podcast VOD", url: "https://www.youtube.com/watch?v=jfKfPfyJRdk" },
-  { label: "Twitch VOD", url: "https://www.twitch.tv/videos/1234567890" },
+  { label: "Twitch clip", url: "https://clips.twitch.tv/TangentialBillowingJalapenoYee-ccA2oB1pEYh4CHWJ" },
 ];
 
 export function ClipUrlForm({

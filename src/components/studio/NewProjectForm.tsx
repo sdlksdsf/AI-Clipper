@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 const SAMPLES = [
   { label: "Long-form video", url: "https://www.youtube.com/watch?v=aircAruvnKk" },
   { label: "Stream VOD", url: "https://www.youtube.com/watch?v=jfKfPfyJRdk" },
-  { label: "Twitch VOD", url: "https://www.twitch.tv/videos/1234567890" },
+  { label: "Twitch clip", url: "https://clips.twitch.tv/TangentialBillowingJalapenoYee-ccA2oB1pEYh4CHWJ" },
 ];
 
 const LENGTHS: { value: LengthPreset; label: string; hint: string }[] = [
@@ -160,7 +160,7 @@ export function NewProjectForm({ initialUrl = "" }: { initialUrl?: string }) {
                 setUrl(event.target.value);
                 if (error) setError(null);
               }}
-              placeholder="https://www.youtube.com/watch?v=…"
+              placeholder="https://www.youtube.com/watch?v=… or https://clips.twitch.tv/…"
               className="field flex-1"
               inputMode="url"
               autoComplete="off"

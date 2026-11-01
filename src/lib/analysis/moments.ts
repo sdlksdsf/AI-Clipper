@@ -57,6 +57,49 @@ const STOP_WORDS = new Set([
   "chat","stream","video","clip","clips","part","point","reason","truth","secret",
 ]);
 
+/** Filler that reads badly as a hashtag even though it survives the stop list. */
+const GENERIC_TAGS = new Set([
+  "couldnt", "wouldnt", "didnt", "doesnt", "isnt", "arent", "wont", "havent",
+  "already", "really", "actually", "probably", "literally", "maybe", "anyway",
+  "everybody", "somebody", "anybody", "nobody", "camera", "screen", "video",
+  "went", "gonna", "wanna", "hundred", "thousand", "million", "dollars",
+  "percent", "asset", "breaks", "break", "happen", "happens", "started",
+  "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+  "twelve", "fifteen", "twenty", "thirty", "forty", "fifty", "sixty", "grand",
+  "explain", "explains", "understand", "understand",
+  "start", "started", "looks", "look", "looked", "talking", "talk", "talks",
+]);
+
+/**
+ * Ranks hashtag candidates for a clip: title words first, then words that repeat
+ * inside the clip, then long content words. Falls back to video-level keywords so
+ * a clip always ships at least two real tags instead of boilerplate.
+ */
+function hashtagWords(text: string, title: string, fallback: string[], limit: number): string[] {
+  const counts = new Map<string, number>();
+  for (const rawWord of text.toLowerCase().split(/[^a-z0-9']+/)) {
+    const word = rawWord.replace(/'s$/, "").replace(/'/g, "").trim();
+    if (word.length < 5 || word.length > 13) continue;
+    if (STOP_WORDS.has(word) || GENERIC_TAGS.has(word)) continue;
+    if (/(ly|ing|ed|est|ful|ous|ism)$/.test(word)) continue;
+    if (/^\d/.test(word)) continue;
+    counts.set(word, (counts.get(word) ?? 0) + 1);
+  }
+  const titleWords = new Set(title.toLowerCase().split(/[^a-z']+/));
+  const rank = (word: string, count: number) =>
+    count + (titleWords.has(word) ? 1.4 : 0) + (word.length >= 7 ? 0.3 : 0);
+  const ranked = [...counts.entries()]
+    .sort((a, b) => rank(b[0], b[1]) - rank(a[0], a[1]) || a[0].localeCompare(b[0]))
+    .map(([word]) => word);
+
+  const picks = [...ranked];
+  for (const word of fallback) {
+    if (picks.length >= limit) break;
+    if (!picks.includes(word)) picks.push(word);
+  }
+  return picks.slice(0, limit);
+}
+
 export interface FocusWeights {
   humor: number;
   emotion: number;
@@ -343,7 +386,7 @@ export function makeTitle(text: string, max = 64): string {
 export function extractKeywords(text: string, limit = 6): string[] {
   const counts = new Map<string, number>();
   for (const rawWord of text.toLowerCase().split(/[^a-z0-9']+/)) {
-    const word = rawWord.replace(/'s$/, "").trim();
+    const word = rawWord.replace(/'s$/, "").replace(/'/g, "").trim();
     if (word.length < 4 || STOP_WORDS.has(word)) continue;
     counts.set(word, (counts.get(word) ?? 0) + 1);
   }
@@ -533,6 +576,12 @@ export function analyzeTranscript(input: AnalyzeInput): AnalyzeOutput {
   if (!selected.length && candidates.length) selected.push(candidates[0]);
 
   const topScore = selected[0]?.score ?? 0.4;
+  const videoHashtagFallback = hashtagWords(
+    segments.map((segment) => segment.text).join(" "),
+    "",
+    extractKeywords(segments.map((segment) => segment.text).join(" "), 6),
+    6,
+  );
 
   const clips: Clip[] = selected.map((candidate, index) => {
     const clipSegments = segments.slice(candidate.startIndex, candidate.endIndex + 1);
@@ -573,29 +622,13 @@ export function analyzeTranscript(input: AnalyzeInput): AnalyzeOutput {
     }
     const speaker = [...speakerCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
-    const repeated = keywords.filter((word) => (text.toLowerCase().match(new RegExp(`\\b${word}\\b`, "g")) ?? []).length >= 2);
-    const tagPool = repeated.length >= 2 ? repeated : keywords;
+    const bodyTags = hashtagWords(text, title, videoHashtagFallback, 3);
     const hashtags = [
-      ...new Set(
-        tagPool
-          .filter(
-            (word) =>
-              word.length >= 5 &&
-              word.length <= 14 &&
-              !/(ly|ing|ed)$/.test(word) &&
-              ![
-                "hundred","thousand","million","dollars","percent","couldnt","already","really",
-                "actually","wait","before","after","anyway","everybody","camera","went","gonna",
-                "wanna","thing","things","stuff","maybe","probably","literally","somebody",
-              ].includes(word),
-          )
-          .slice(0, 4)
-          .concat(["shorts", "clips", "streamer"]),
-      ),
+      ...new Set([...bodyTags, "shorts", "clips"]),
     ]
       .map((tag) => `#${tag.replace(/[^a-z0-9]/gi, "").toLowerCase()}`)
       .filter((tag) => tag.length > 4)
-      .slice(0, 6);
+      .slice(0, 5);
 
     const summary = stripFillers(clipSegments[0].text);
     const description = `${summary}${clipSegments[1] ? ` ${stripFillers(clipSegments[1].text)}` : ""}\n\nClipped with ClipForge.\n${hashtags.join(" ")}`;
